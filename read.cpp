@@ -39,24 +39,6 @@ typedef struct
     uint32_t size;
 } file_t;
 
-char* readString(const void* ptr, uint32_t* dataSize)
-{
-    uint16_t len = *(uint16_t*)ptr;
-
-    char* str = (char*)malloc(len+1);
-    char* p = ((char*)ptr) + 2;
-    for(size_t i=0; i<len; i++)
-    {
-        str[i] = *p;
-        p += 2;
-    }
-    str[len] = 0;
-
-    if(dataSize) *dataSize = (len + 1) *2;
-
-    return str;
-}
-
 const char* getNameByUid(const char* uid)
 {
     if(strcmp(uid, "d80e93dbb13849c891a350e78921b742")==0) return ""; // image?
@@ -82,6 +64,46 @@ const char* getNameByUid(const char* uid)
     return NULL;
 }
 
+char* writeUtf(char* ptr, uint16_t ch)
+{
+    if(ch<0x7f)
+    {
+        *ptr = (char)ch;
+        return ptr + 1;
+    }
+    else if(ch<0x7ff)
+    {
+        ptr[0] = (char)(0xC0 | (ch >> 6));
+        ptr[1] = (char)(0x80 | (ch & 0x3F));
+        return ptr + 2;
+    }
+    else
+    {
+        ptr[0] = (char)(0xE0 | (ch >> 12));
+        ptr[1] = (char)(0x80 | ((ch >> 6) & 0x3F));
+        ptr[2] = (char)(0x80 | (ch & 0x3F));
+        return ptr + 3;
+    }
+}
+
+char* readString(const void* ptr, uint32_t* dataSize)
+{
+    uint16_t len = *(uint16_t*)ptr;
+
+    char* str = (char*)malloc(len*2 + 1);
+    uint16_t* in = (uint16_t*)(((char*)ptr) + 2);
+    char* p = str;
+    for(size_t i=0; i<len; i++)
+    {
+        p = writeUtf(p, in[i]);
+    }
+    str[len] = 0;
+
+    if(dataSize) *dataSize = (len + 1) *2;
+
+    return str;
+}
+
 char* readString(FILE* f)
 {
     uint32_t pos = ftell(f);
@@ -89,7 +111,8 @@ char* readString(FILE* f)
     uint16_t len;
     if(fread(&len, sizeof(len), 1, f) != 1) return 0;
 
-    char* str = (char*)malloc(len+1);
+    char* str = (char*)malloc(len*2 + 1);
+    char* ptr = str;
 
     for(size_t i=0; i<len; i++)
     {
@@ -100,7 +123,7 @@ char* readString(FILE* f)
             fprintf(stderr, "Error reading string at 0x%x\n", pos);
             return 0;
         }
-        str[i] = (char)(buf & 0xff);
+        ptr = writeUtf(ptr, buf);
     }
     str[len] = 0;
 
