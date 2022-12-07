@@ -11,3 +11,17 @@
 *.lai
 *.la
 *.a
+
+# Compiled files
+read
+read_trailer
+
+# Output directories
+out
+trailer
+
+# Temporary files
+*.swp
+
+# Input files
+*.sbu
