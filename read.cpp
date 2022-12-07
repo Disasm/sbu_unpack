@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <list>
+#include "common.h"
 
 typedef struct
 {
@@ -14,24 +15,6 @@ typedef struct
     uint64_t dataSize2;
     uint64_t trailerSize2;
 } __attribute__ ((packed)) sbu_file_header_t;
-
-typedef struct
-{
-    uint16_t zero1;
-    uint32_t offset;
-    uint32_t zero2;
-    // name1, name2
-} __attribute__ ((packed)) sbu_dirent_t;
-
-typedef struct
-{
-    // name1, name2
-    uint32_t zero1;
-    uint32_t size;
-    uint32_t unk1; // checksum?
-    uint32_t zero2;
-    uint32_t unk2; //0x24, 0x27
-} __attribute__ ((packed)) sbu_dirent2_t;
 
 typedef struct
 {
@@ -62,46 +45,6 @@ const char* getNameByUid(const char* uid)
     if(strcmp(uid, "dd3f966286cf4378af6e72c7dbf5575f")==0) return "JAVA";
     fprintf(stderr, "Unknown UID: %s\n", uid);
     return NULL;
-}
-
-char* writeUtf(char* ptr, uint16_t ch)
-{
-    if(ch<0x7f)
-    {
-        *ptr = (char)ch;
-        return ptr + 1;
-    }
-    else if(ch<0x7ff)
-    {
-        ptr[0] = (char)(0xC0 | (ch >> 6));
-        ptr[1] = (char)(0x80 | (ch & 0x3F));
-        return ptr + 2;
-    }
-    else
-    {
-        ptr[0] = (char)(0xE0 | (ch >> 12));
-        ptr[1] = (char)(0x80 | ((ch >> 6) & 0x3F));
-        ptr[2] = (char)(0x80 | (ch & 0x3F));
-        return ptr + 3;
-    }
-}
-
-char* readString(const void* ptr, uint32_t* dataSize)
-{
-    uint16_t len = *(uint16_t*)ptr;
-
-    char* str = (char*)malloc(len*2 + 1);
-    uint16_t* in = (uint16_t*)(((char*)ptr) + 2);
-    char* p = str;
-    for(size_t i=0; i<len; i++)
-    {
-        p = writeUtf(p, in[i]);
-    }
-    str[len] = 0;
-
-    if(dataSize) *dataSize = (len + 1) *2;
-
-    return str;
 }
 
 char* readString(FILE* f)
