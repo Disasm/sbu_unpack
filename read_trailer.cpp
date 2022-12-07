@@ -45,26 +45,13 @@ void dumpFile(FILE *fsbu, long offset, size_t size, char *dirname, char *filenam
 	fclose(f);
 }
 
-int main(int argc, char* argv[])
+void handleTrailer(char *trailerFilePath, FILE *fsbu)
 {
-	if(argc != 3)
-	{
-		fprintf(stderr, "Usage: %s <file.sbu> <trailerfile.tr>\n", argv[0]);
-		return 1;
-	}
-
-	FILE* fsbu = fopen(argv[1], "r");
-	if(!fsbu)
-	{
-		fprintf(stderr, "Can't open file '%s'\n", argv[1]);
-		return 1;
-	}
-
-	FILE* ft = fopen(argv[2], "r");
+	FILE* ft = fopen(trailerFilePath, "r");
 	if(!ft)
 	{
-		fprintf(stderr, "Can't open file '%s'\n", argv[2]);
-		return 1;
+		fprintf(stderr, "Can't open file '%s'\n", trailerFilePath);
+		return;
 	}
 
 	fseek(ft, 0, SEEK_END);
@@ -97,7 +84,28 @@ int main(int argc, char* argv[])
 		dumpFile(fsbu, de1->offset, de2->size, str1, str2);
 	}
 
+	fclose(ft);
+}
+
+int main(int argc, char* argv[])
+{
+	if(argc < 3)
+	{
+		fprintf(stderr, "Usage: %s <file.sbu> <trailerfile.tr> [<trailerfile2.tr>] [...]\n", argv[0]);
+		return 1;
+	}
+
+	FILE* fsbu = fopen(argv[1], "r");
+	if(!fsbu)
+	{
+		fprintf(stderr, "Can't open file '%s'\n", argv[1]);
+		return 1;
+	}
+
+	for(int i=2; i<argc; i++)
+	{
+		handleTrailer(argv[i], fsbu);
+	}
 
 	fclose(fsbu);
-	fclose(ft);
 }
