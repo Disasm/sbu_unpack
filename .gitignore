@@ -14,7 +14,6 @@
 
 # Compiled files
 read
-read_trailer
 
 # Output directories
 out

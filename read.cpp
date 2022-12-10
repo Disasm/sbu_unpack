@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <list>
-#include "common.h"
 
 typedef struct
 {
@@ -15,6 +14,24 @@ typedef struct
     uint64_t dataSize2;
     uint64_t trailerSize2;
 } __attribute__ ((packed)) sbu_file_header_t;
+
+typedef struct
+{
+    uint16_t zero1;
+    uint32_t offset;
+    uint32_t zero2;
+    // name1, name2
+} __attribute__ ((packed)) sbu_dirent_t;
+
+typedef struct
+{
+    // name1, name2
+    uint32_t zero1;
+    uint32_t size;
+    uint32_t unk1; // checksum?
+    uint32_t zero2;
+    uint32_t unk2; //0x24, 0x27
+} __attribute__ ((packed)) sbu_dirent2_t;
 
 typedef struct
 {
@@ -47,6 +64,46 @@ const char* getNameByUid(const char* uid)
     return NULL;
 }
 
+char* writeUtf(char* ptr, uint16_t ch)
+{
+    if(ch<0x7f)
+    {
+        *ptr = (char)ch;
+        return ptr + 1;
+    }
+    else if(ch<0x7ff)
+    {
+        ptr[0] = (char)(0xC0 | (ch >> 6));
+        ptr[1] = (char)(0x80 | (ch & 0x3F));
+        return ptr + 2;
+    }
+    else
+    {
+        ptr[0] = (char)(0xE0 | (ch >> 12));
+        ptr[1] = (char)(0x80 | ((ch >> 6) & 0x3F));
+        ptr[2] = (char)(0x80 | (ch & 0x3F));
+        return ptr + 3;
+    }
+}
+
+char* readString(const void* ptr, uint32_t* dataSize)
+{
+    uint16_t len = *(uint16_t*)ptr;
+
+    char* str = (char*)malloc(len*2 + 1);
+    uint16_t* in = (uint16_t*)(((char*)ptr) + 2);
+    char* p = str;
+    for(size_t i=0; i<len; i++)
+    {
+        p = writeUtf(p, in[i]);
+    }
+    str[len] = 0;
+
+    if(dataSize) *dataSize = (len + 1) *2;
+
+    return str;
+}
+
 char* readString(FILE* f)
 {
     uint32_t pos = ftell(f);
@@ -73,7 +130,48 @@ char* readString(FILE* f)
     return str;
 }
 
-void dumpTrailer(char* ptr)
+void dumpFile(FILE *fsbu, long offset, size_t size, char *dirname, char *filename)
+{
+        char *p;
+        if((p=index(dirname, ':')))
+        {
+                dirname = p;
+                dirname++;
+        }
+
+        if(*dirname=='\\')
+        {
+                dirname++;
+        }
+
+        p = dirname;
+        while(*p!='\0')
+        {
+                if(*p=='\\')
+                {
+                        *p='_';
+                }
+                p++;
+        }
+
+
+        char outputpath[1000];
+        sprintf(outputpath, "trailer/%s%s", dirname, filename);
+        FILE *f = fopen(outputpath, "w");
+        if(!f)
+        {
+                fprintf(stderr, "Can't open file '%s'\n", outputpath);
+                return;
+        }
+
+        fseek(fsbu, offset, SEEK_SET);
+        void *data = malloc(size);
+        fread(data, 1, size, fsbu);
+        fwrite(data, size, 1, f);
+        fclose(f);
+}
+
+void dumpTrailer(char* ptr, uint16_t version, FILE *fsbu)
 {
     printf("trailer:\n");
 
@@ -96,11 +194,17 @@ void dumpTrailer(char* ptr)
         sbu_dirent2_t* de2 = (sbu_dirent2_t*)ptr;
         ptr += sizeof(sbu_dirent2_t);
 
+	if(version>=2)
+	{
+		ptr += 4;
+	}
+
         printf("  file offset=0x%08x size=0x%08x '%s' '%s'\n", de1->offset, de2->size, str1, str2);
+	dumpFile(fsbu, de1->offset, de2->size, str1, str2);
     }
 }
 
-bool unpackFile(FILE* f, uint32_t offset, uint32_t size)
+bool unpackFile(FILE* f, uint32_t offset, uint32_t size, uint16_t version)
 {
     printf("========= unpacking file at 0x%08x ==========\n", offset);
     fseek(f, offset, SEEK_SET);
@@ -148,7 +252,7 @@ bool unpackFile(FILE* f, uint32_t offset, uint32_t size)
         fwrite(data, 1, header.trailerSize, f2);
         fclose(f2);
 
-        dumpTrailer((char*)data);
+        dumpTrailer((char*)data, version, f);
     
         free(data);
     }
@@ -186,9 +290,13 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    // version information 0x4, if 2 one trailer is 4 bytes larger than version 1 (l 88 read_trailer.cpp)
+
+    uint16_t version;
+    fread(&version, 2, 1, f);
+    printf("version=%0u\n", version);
+
     uint16_t num;
-    fread(&num, 2, 1, f);
-    printf("num1=0x%04x\n", num);
     fread(&num, 2, 1, f);
     printf("num2=0x%04x\n", num);
     fread(&num, 2, 1, f);
@@ -240,7 +348,7 @@ int main(int argc, char* argv[])
     for(std::list<file_t>::const_iterator it=files.begin(); it!=files.end(); it++)
     {
         const file_t& file = *it;
-        unpackFile(f, file.offset, file.size);
+        unpackFile(f, file.offset, file.size, version);
     }
 
     fclose(f);
