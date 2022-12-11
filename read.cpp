@@ -130,7 +130,51 @@ char* readString(FILE* f)
     return str;
 }
 
-void dumpTrailer(char* ptr)
+void dumpFile(FILE *fsbu, long offset, size_t size, char *dirname, char *filename)
+{
+        char *p;
+        if((p=index(dirname, ':')))
+        {
+                dirname = p;
+                dirname++;
+        }
+
+        if(*dirname=='\\')
+        {
+                dirname++;
+        }
+
+        p = dirname;
+        while(*p!='\0')
+        {
+                if(*p=='\\')
+                {
+                        *p='_';
+                }
+                p++;
+        }
+
+
+        char outputpath[1000];
+        sprintf(outputpath, "trailer/%s%s", dirname, filename);
+        FILE *f = fopen(outputpath, "w");
+        if(!f)
+        {
+                fprintf(stderr, "Can't open file '%s'\n", outputpath);
+                return;
+        }
+
+        fseek(fsbu, offset, SEEK_SET);
+        void *data = malloc(size);
+	if(fread(data, 1, size, fsbu)!=size)
+	{
+		fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+	}
+        fwrite(data, size, 1, f);
+        fclose(f);
+}
+
+void dumpTrailer(char* ptr, uint16_t version, FILE *fsbu)
 {
     printf("trailer:\n");
 
@@ -153,18 +197,28 @@ void dumpTrailer(char* ptr)
         sbu_dirent2_t* de2 = (sbu_dirent2_t*)ptr;
         ptr += sizeof(sbu_dirent2_t);
 
+	if(version>=2)
+	{
+		ptr += 4;
+	}
+
         printf("  file offset=0x%08x size=0x%08x '%s' '%s'\n", de1->offset, de2->size, str1, str2);
+	dumpFile(fsbu, de1->offset, de2->size, str1, str2);
     }
 }
 
-bool unpackFile(FILE* f, uint32_t offset, uint32_t size)
+bool unpackFile(FILE* f, uint32_t offset, uint32_t size, uint16_t version)
 {
     printf("========= unpacking file at 0x%08x ==========\n", offset);
     fseek(f, offset, SEEK_SET);
 
     sbu_file_header_t header;
 
-    if(fread(&header, sizeof(header), 1, f) != 1) return false;
+    if(fread(&header, sizeof(header), 1, f) != 1)
+    {
+	fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+	return false;
+    }
     size -= sizeof(header);
 
     char uid[33];
@@ -186,7 +240,10 @@ bool unpackFile(FILE* f, uint32_t offset, uint32_t size)
 
     // read data
     void* data = malloc(header.dataSize);
-    fread(data, 1, header.dataSize, f);
+    if(fread(data, 1, header.dataSize, f)!=header.dataSize)
+    {
+	fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+    }
 
     FILE* f2 = fopen(fileName, "w");
     fwrite(data, 1, header.dataSize, f2);
@@ -198,14 +255,17 @@ bool unpackFile(FILE* f, uint32_t offset, uint32_t size)
     {
         // read trailer
         data = malloc(header.trailerSize);
-        fread(data, 1, header.trailerSize, f);
+        if(fread(data, 1, header.trailerSize, f)!=header.trailerSize)
+	{
+		fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+	}
     
         strcat(fileName, ".tr");
         f2 = fopen(fileName, "w");
         fwrite(data, 1, header.trailerSize, f2);
         fclose(f2);
 
-        dumpTrailer((char*)data);
+        dumpTrailer((char*)data, version, f);
     
         free(data);
     }
@@ -234,7 +294,10 @@ int main(int argc, char* argv[])
     }
 
     char buf[100];
-    fread(buf, 1, 4, f);
+    if(fread(buf, 1, 4, f)!=4)
+    {
+	fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+    }
 
     if(strncmp(buf, "SBU_", 4) != 0)
     {
@@ -243,12 +306,24 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    uint16_t version;
+    if(fread(&version, 2, 1, f)!=1)
+    {
+	fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+    }
+    printf("version=%0u\n", version);
+
     uint16_t num;
-    fread(&num, 2, 1, f);
-    printf("num1=0x%04x\n", num);
-    fread(&num, 2, 1, f);
+    if(fread(&num, 2, 1, f)!=1)
+    {
+	fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+    }
     printf("num2=0x%04x\n", num);
-    fread(&num, 2, 1, f);
+
+    if(fread(&num, 2, 1, f)!=1)
+    {
+	fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+    }
     printf("num3=0x%04x\n", num);
 
     char* str;
@@ -264,7 +339,10 @@ int main(int argc, char* argv[])
     printf("str5='%s'\n", str);
 
     uint32_t numEntries;
-    fread(&numEntries, 4, 1, f);
+    if(fread(&numEntries, 4, 1, f)!=1)
+    {
+	fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+    }
     printf("numEntries=0x%x\n", numEntries);
 
     std::list<file_t> files;
@@ -274,9 +352,20 @@ int main(int argc, char* argv[])
         uint64_t offset;
         uint64_t size;
 
-        fread(uid, 1, 16, f);
-        fread(&offset, 8, 1, f);
-        fread(&size, 8, 1, f);
+        if(fread(uid, 1, 16, f)!=16)
+	{
+	    fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+	}
+	
+	if(fread(&offset, 8, 1, f)!=1)
+	{
+	    fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+	}
+
+        if(fread(&size, 8, 1, f)!=1)
+	{
+	    fprintf(stderr, "warning less bytes read than expected, line %d\n", __LINE__);
+	}
         fseek(f, 6, SEEK_CUR); // skip 6 bytes
 
         if(offset==0) continue;
@@ -297,7 +386,7 @@ int main(int argc, char* argv[])
     for(std::list<file_t>::const_iterator it=files.begin(); it!=files.end(); it++)
     {
         const file_t& file = *it;
-        unpackFile(f, file.offset, file.size);
+        unpackFile(f, file.offset, file.size, version);
     }
 
     fclose(f);
